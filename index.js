@@ -10,19 +10,19 @@ const csv = require('fast-csv')
 const fs = require('fs');
 const fsExtra = require('fs-extra')
 let currentPath = process.cwd();
-let outputDirname = "mystry-resolve"
-let resolvePath = path.resolve(process.cwd(),"..");
+let outputDirname = "formated"
+let resolvePath = path.resolve(process.cwd());
 program
   .version('0.1.0')
-  .description('mystry to resolve the pincode from files')
+  .description('formating the CSV files data')
 
  program
-  .command('resolve')
-  .alias('s')
-  .description('solve the the pincode mystry')
-  .option('-o, --outputDirname [type]', 'Add the specified outputDiractory name like [mystry-resolve]', outputDirname)
+  .command('format')
+  .alias('f')
+  .description('formating the csv files')
+  .option('-o, --outputDirname [type]', 'Add the specified outputDiractory name like [resolve]', outputDirname)
   .action(function(options){
-  console.log('your mystry resolved :');
+  console.log('your files formated :');
     let allFiles = []
     fs.readdirSync(currentPath).forEach(file => {
       allFiles.push(currentPath+path.sep+file);
@@ -35,10 +35,10 @@ program
         await fsExtra.emptyDir(p)
         for (var i = 0; i < allFiles.length; i++) {
           if(path.extname(allFiles[i]) === ".csv") {
+            console.log(path.basename(allFiles[i]));
             let d = await parseCSV(allFiles[i])
             d = findPincode(d);
             let r = p+path.sep+path.basename(allFiles[i]);
-            console.log(path.basename(allFiles[i]));
             await exportCSV(r,d)
           }
         }
@@ -55,7 +55,7 @@ program
     program
      .command('count')
      .alias('c')
-     .description('count the mystry files')
+     .description('count the CSV files')
      .action(function(options){
        let allFiles = []
        fs.readdirSync(currentPath).forEach(file => {
@@ -65,8 +65,15 @@ program
 
        console.log('Total mystry Files ',allFiles.length);
   })
-program.parse(process.argv);
+ program.on('command:*', function () {
+  console.error('Invalid command: %s\nSee --help for a list of available commands.', program.args.join(' '));
+  process.exit(1);
+});
 
+program.parse(process.argv);
+ if (!process.argv.slice(2).length) {
+  program.outputHelp();
+}
 
 function findPincode (data) {
  let d = data.map((item,index) => {
@@ -74,8 +81,19 @@ function findPincode (data) {
    let e = 17;
    for(var i = 1; i<= 17 ; i++){
      r = r +` ${data[index]["Address"+i]}`
+     delete data[index]["Address"+i]
    }
-   item["PINCODE"] = r.match(/([0-9]{6})/g) ? r.match(/([0-9]{6})/g)[0] : ""
+
+  item["PINCODE"] = r.match(/([0-9]{6})/g) ? r.match(/([0-9]{6})/g)[0] : ""
+  r = r.split(' ').filter(function(currentItem,l,allItems){
+      return (l == allItems.indexOf(currentItem));
+  });
+  r = r.join(" ")
+  r = r.replace('NULL', '').trim()
+  if(r.match(/([0-9]{6})/g)){
+     r = r.replace(new RegExp(r.match(/([0-9]{6})/g)[0], "ig"),"").trim()
+   }
+  item["Address"] = r;
    return item;
  })
  return d
@@ -84,7 +102,7 @@ function findPincode (data) {
 function exportCSV(path,data) {
   return new Promise(function(resolve, reject) {
     csv
-    .writeToPath(path, data, {headers: true})
+    .writeToStream(fs.createWriteStream(path), data, {headers: true})
     .on("finish", function(){
       resolve()
     });
@@ -94,9 +112,9 @@ function exportCSV(path,data) {
 function parseCSV(filePath) {
   return new Promise(function(resolve, reject) {
     let i = []
-    csv
-     .fromPath(filePath,{ignoreEmpty: true})
-     .on("data", function(data){
+    fs.createReadStream(filePath)
+    .pipe(csv.parse({ignoreEmpty: true }))
+    .on("data", function(data){
        i.push(data)
      })
      .on("end", ()=>{

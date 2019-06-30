@@ -1,5 +1,5 @@
 {
-  "name": "mystry",
+  "name": "csv",
   "version": "1.0.0",
   "preferGlobal": true,
   "bin": "./index.js",
