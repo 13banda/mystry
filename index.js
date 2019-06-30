@@ -8,6 +8,8 @@ var program = require('commander');
 const path = require('path')
 const csv = require('fast-csv')
 const fs = require('fs');
+var Spinner = require('cli-spinner').Spinner;
+
 const fsExtra = require('fs-extra')
 let currentPath = process.cwd();
 let outputDirname = "formated"
@@ -22,27 +24,33 @@ program
   .description('formating the csv files')
   .option('-o, --outputDirname [type]', 'Add the specified outputDiractory name like [resolve]', outputDirname)
   .action(function(options){
-  console.log('your files formated :');
+    var spinner = new Spinner();
+    spinner.setSpinnerString(3)
+    spinner.setSpinnerDelay(200)
+    spinner.start()
     let allFiles = []
     fs.readdirSync(currentPath).forEach(file => {
+      if(path.extname(file) === ".csv")
       allFiles.push(currentPath+path.sep+file);
     });
     try {
       (async ()=> {
         let p = path.resolve(resolvePath,options.outputDirname)
         console.log("reolved output directory :- ",p);
-
+        console.log("Toatal Files :- ", allFiles.length);
         await fsExtra.emptyDir(p)
         for (var i = 0; i < allFiles.length; i++) {
           if(path.extname(allFiles[i]) === ".csv") {
-            console.log(path.basename(allFiles[i]));
+            spinner.setSpinnerTitle(path.basename(allFiles[i]));
             let d = await parseCSV(allFiles[i])
             d = findPincode(d);
             let r = p+path.sep+path.basename(allFiles[i]);
             await exportCSV(r,d)
           }
         }
+        spinner.stop()
         console.log("all Files Done");
+        process.exit(-1)
       })()
 
     } catch (e) {

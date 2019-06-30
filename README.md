@@ -1,23 +1,24 @@
-# mystry
+# csv
 
 resolve the pincode from CSV files
 
 ```
 clone this repo
-and 
+and
 
 node install && node link
 
-and use mystry --help
+Usage: csv [options] [command]
 
-mystry to resolve the pincode from files
+formating the CSV files data
 
 Options:
-  -V, --version        output the version number
-  -h, --help           output usage information
+  -V, --version       output the version number
+  -h, --help          output usage information
 
 Commands:
-  resolve|s [options]  solve the the pincode mystry
-  count|c              count the mystry files
+  format|f [options]  formating the csv files
+  count|c             count the CSV files
+
 
 ```
