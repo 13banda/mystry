@@ -9,7 +9,7 @@ const path = require('path')
 const csv = require('fast-csv')
 const fs = require('fs');
 var Spinner = require('cli-spinner').Spinner;
-
+const mysql = require('mysql')
 const fsExtra = require('fs-extra')
 let currentPath = process.cwd();
 let outputDirname = "formated"
@@ -20,7 +20,7 @@ program
   .version('0.1.0')
   .description('formating the CSV files data')
 
- program
+program
   .command('format')
   .alias('f')
   .description('formating the csv files')
@@ -58,6 +58,42 @@ program
     }
   })
 
+
+  program
+    .command('upload')
+    .alias('u')
+    .description('import csv files into mysql')
+    .option('-h, --host [type]', 'MYSQL database host address [default]', "localhost")
+    .option('-d, --database [type]', 'database name [default]', "finalmobiledata")
+    .option('-u, --user [type]', 'datbase user name [default]', "root")
+    .option('-p, --password [type]', 'database password [default]', "")
+    .option('-t, --table [type]', 'table name [default]', "data")
+    .action(async (options) => {
+      spinner.setSpinnerString(3)
+      spinner.setSpinnerDelay(200)
+      spinner.start()
+      let allFiles = []
+      fs.readdirSync(currentPath).forEach(file => {
+        if(path.extname(file) === ".csv")
+        allFiles.push(currentPath+path.sep+file);
+      });
+      try {
+          console.log("Toatal Files :- ", allFiles.length);
+          for (var i = 0; i < allFiles.length; i++) {
+            if(path.extname(allFiles[i]) === ".csv") {
+              spinner.setSpinnerTitle(`file index: ${i+1} ,parsing & uploading${path.basename(allFiles[i])} file`);
+              let d = await uploadCSV(allFiles[i],(i+1),path.basename(allFiles[i]),options)
+              spinner.setSpinnerTitle(`file index: ${i+1} ,uploaded ${path.basename(allFiles[i])} file`);
+            }
+          }
+          spinner.stop()
+          console.log("all Files uploaded");
+          process.exit(-1)
+      } catch (e) {
+          console.log(e);
+      }
+    })
+
     program
      .command('count')
      .alias('c')
@@ -90,15 +126,15 @@ function findPincode (data) {
        delete data[index]["Address"+i]
      }
 
-    item["PINCODE"] = r.match(/([0-9]{6})/g) ? r.match(/([0-9]{6})/g)[0] : ""
+    item["PINCODE"] = r.match(/(4[0-9]{5})/g) ? r.match(/(4[0-9]{5})/g)[0] : ""
     r = r.split(' ').filter(function(currentItem,l,allItems){
         return (l == allItems.indexOf(currentItem));
     });
     r = r.join(" ")
     r = r.replace('NULL', '').trim()
     r = r.replace('#VALUE!', '').trim()
-    if(r.match(/([0-9]{6})/g)){
-       r = r.replace(new RegExp(r.match(/([0-9]{6})/g)[0], "ig"),"").trim()
+    if(r.match(/(4[0-9]{5})/g)){
+       r = r.replace(new RegExp(r.match(/(4[0-9]{5})/g)[0], "ig"),"").trim()
      }
     item["Address"] = r;
      return item;
@@ -130,7 +166,8 @@ function parseCSV(filePath,index,filename) {
      })
      .on("end", ()=>{
        spinner.setSpinnerTitle(`file index: ${index} ,parsing ${filename} file, loading...`);
-        i = i.map((e,index)=>{
+       let globalData = []
+        i.forEach((e,index)=>{
           if(index > 0){
             let a = {}
             for(var l=0;l<e.length;l++){
@@ -141,11 +178,50 @@ function parseCSV(filePath,index,filename) {
             e.forEach((item,index)=>{
               a[(i[0][index])] = item
             })
-            return a;
+            globalData.push(a);
           }
        })
        spinner.setSpinnerTitle(`file index: ${index} ,parsing ${filename} file, done!`);
-       resolve(i)
+       resolve(globalData)
+     });
+  });
+}
+
+
+
+function uploadCSV(filePath,index,filename,options) {
+  return new Promise(function(resolve, reject) {
+    let i = []
+    fs.createReadStream(filePath)
+    .pipe(csv.parse({ignoreEmpty: true }))
+    .on("data", function(data){
+       i.push(data)
+       spinner.setSpinnerTitle(`file index: ${index} ,parsing ${filename} file, row-parsed:${i.length}`);
+     })
+     .on("end", ()=>{
+       i.shift()
+       spinner.setSpinnerTitle(`file index: ${index} ,parsing ${filename} file, uploading...`);
+       // create a new connection to the database
+       // create a new connection to the database
+		const connection = mysql.createConnection({
+      host: options.host,
+      user: options.user,
+      password:options.password,
+      database: options.database
+		});
+
+        // open the connection
+		connection.connect((error) => {
+			if (error) {
+				console.error(error);
+			} else {
+				let query = 'INSERT INTO '+options.table+' (Mobile, Name, PINCODE, Address) VALUES ?';
+				con.query(query, [i], (error, response) => {
+					console.log(error || response);
+				});
+			}
+		});
+       spinner.setSpinnerTitle(`file index: ${index} ,parsing ${filename} file, upload done!`);
      });
   });
 }
