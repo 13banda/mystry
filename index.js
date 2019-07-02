@@ -1,5 +1,4 @@
-#!/usr/bin/env node
-
+#!/usr/bin/env   node
 /**
  * Module dependencies.
  */
@@ -72,6 +71,14 @@ program
       spinner.setSpinnerString(3)
       spinner.setSpinnerDelay(200)
       spinner.start()
+      const pool = mysql.createPool({
+        connectionLimit : 10,
+        host: options.host,
+        user: options.user,
+        password:options.password,
+        database: options.database
+      });
+
       let allFiles = []
       fs.readdirSync(currentPath).forEach(file => {
         if(path.extname(file) === ".csv")
@@ -82,11 +89,11 @@ program
           for (var i = 0; i < allFiles.length; i++) {
             if(path.extname(allFiles[i]) === ".csv") {
               spinner.setSpinnerTitle(`file index: ${i+1} ,parsing & uploading${path.basename(allFiles[i])} file`);
-              let d = await uploadCSV(allFiles[i],(i+1),path.basename(allFiles[i]),options)
+              let d = await uploadCSV(pool,allFiles[i],(i+1),path.basename(allFiles[i]),options)
               spinner.setSpinnerTitle(`file index: ${i+1} ,uploaded ${path.basename(allFiles[i])} file`);
             }
           }
-          spinner.stop()
+         spinner.stop()
           console.log("all Files uploaded");
           process.exit(-1)
       } catch (e) {
@@ -176,12 +183,15 @@ function parseCSV(filePath,index,filename) {
                 }
             }
             e.forEach((item,index)=>{
-              a[(i[0][index])] = item
+              if((i[0][index]) !== ""){
+                a[(i[0][index])] = item
+              }
             })
             globalData.push(a);
           }
        })
        spinner.setSpinnerTitle(`file index: ${index} ,parsing ${filename} file, done!`);
+
        resolve(globalData)
      });
   });
@@ -189,39 +199,56 @@ function parseCSV(filePath,index,filename) {
 
 
 
-function uploadCSV(filePath,index,filename,options) {
-  return new Promise(function(resolve, reject) {
+async function uploadCSV(pool,filePath,index,filename,options) {
+  return new Promise(async function(resolve, reject) {
     let i = []
     fs.createReadStream(filePath)
     .pipe(csv.parse({ignoreEmpty: true }))
     .on("data", function(data){
        i.push(data)
-       spinner.setSpinnerTitle(`file index: ${index} ,parsing ${filename} file, row-parsed:${i.length}`);
+       spinner.setSpinnerTitle(`file index: ${index} ,parsing  ${filename} file, row-parsed:${i.length}`);
      })
      .on("end", ()=>{
-       i.shift()
-       spinner.setSpinnerTitle(`file index: ${index} ,parsing ${filename} file, uploading...`);
+       let globalData = []
+        i.forEach((e,index)=>{
+          if(index > 0){
+            let a = {}
+            for(var l=0;l<e.length;l++){
+                if(!e[l]){
+                  e[l] = ""
+                }
+            }
+            e.forEach((item,index)=>{
+              if((i[0][index]) !== ""){
+                a[(i[0][index])] = item
+              }
+            })
+            globalData.push(a);
+          }
+       })
+       spinner.setSpinnerTitle(`file index: ${index} ,uploading ${filename} file, uploading...`);
        // create a new connection to the database
        // create a new connection to the database
-		const connection = mysql.createConnection({
-      host: options.host,
-      user: options.user,
-      password:options.password,
-      database: options.database
-		});
+    pool.getConnection(async function(err, connection) {
+    if (err) throw err; // not connected!
 
-        // open the connection
-		connection.connect((error) => {
-			if (error) {
-				console.error(error);
-			} else {
-				let query = 'INSERT INTO '+options.table+' (Mobile, Name, PINCODE, Address) VALUES ?';
-				con.query(query, [i], (error, response) => {
-					console.log(error || response);
-				});
-			}
-		});
-       spinner.setSpinnerTitle(`file index: ${index} ,parsing ${filename} file, upload done!`);
-     });
+      // Use the connection
+      globalData = globalData.map((item) => {
+        return Object.values(item)
+      })
+      globalData = globalData.map((item) => {
+        item[0] = "91"+item[0]
+        return item;
+      })
+      console.log(globalData);
+      let query = "INSERT INTO "+options.table+" (mobile,name,pincode,address) VALUES ?";
+      connection.query(query, [globalData], (error, response) => {
+          if (error) throw error;
+          connection.release();
+          spinner.setSpinnerTitle(`file index: ${index} ,parsing ${filename} file, total: ${globalData.length} uploaded !`);
+          resolve()
+      });
+    });
   });
+})
 }
