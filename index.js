@@ -9,11 +9,21 @@ const csv = require('fast-csv')
 const fs = require('fs');
 var Spinner = require('cli-spinner').Spinner;
 const mysql = require('mysql')
+const async = require("async")
 const fsExtra = require('fs-extra')
 let currentPath = process.cwd();
 let outputDirname = "formated"
 let resolvePath = path.resolve(process.cwd());
 var spinner = new Spinner();
+const CHUNK_LIMIT = 50000
+Object.defineProperty(Array.prototype, 'chunk', {
+  value: function(chunkSize) {
+    var R = [];
+    for (var i = 0; i < this.length; i += chunkSize)
+      R.push(this.slice(i, i + chunkSize));
+    return R;
+  }
+});
 
 program
   .version('0.1.0')
@@ -63,7 +73,7 @@ program
     .alias('u')
     .description('import csv files into mysql')
     .option('-h, --host [type]', 'MYSQL database host address [default]', "localhost")
-    .option('-d, --database [type]', 'database name [default]', "finalmobiledata")
+    .option('-d, --database [type]', 'database name [default]', "mumbai")
     .option('-u, --user [type]', 'datbase user name [default]', "root")
     .option('-p, --password [type]', 'database password [default]', "")
     .option('-t, --table [type]', 'table name [default]', "data")
@@ -71,13 +81,13 @@ program
       spinner.setSpinnerString(3)
       spinner.setSpinnerDelay(200)
       spinner.start()
-      const pool = mysql.createPool({
+       const pool = mysql.createPool({
         connectionLimit : 10,
         host: options.host,
         user: options.user,
         password:options.password,
         database: options.database
-      });
+      }); 
 
       let allFiles = []
       fs.readdirSync(currentPath).forEach(file => {
@@ -89,7 +99,7 @@ program
           for (var i = 0; i < allFiles.length; i++) {
             if(path.extname(allFiles[i]) === ".csv") {
               spinner.setSpinnerTitle(`file index: ${i+1} ,parsing & uploading${path.basename(allFiles[i])} file`);
-              let d = await uploadCSV(pool,allFiles[i],(i+1),path.basename(allFiles[i]),options)
+              let d = await uploadCSV(pool ,allFiles[i],(i+1),path.basename(allFiles[i]),options)
               spinner.setSpinnerTitle(`file index: ${i+1} ,uploaded ${path.basename(allFiles[i])} file`);
             }
           }
@@ -200,7 +210,7 @@ function parseCSV(filePath,index,filename) {
 
 
 async function uploadCSV(pool,filePath,index,filename,options) {
-  return new Promise(async function(resolve, reject) {
+  return new Promise(function(resolve, reject) {
     let i = []
     fs.createReadStream(filePath)
     .pipe(csv.parse({ignoreEmpty: true }))
@@ -229,26 +239,44 @@ async function uploadCSV(pool,filePath,index,filename,options) {
        spinner.setSpinnerTitle(`file index: ${index} ,uploading ${filename} file, uploading...`);
        // create a new connection to the database
        // create a new connection to the database
-    pool.getConnection(async function(err, connection) {
-    if (err) throw err; // not connected!
-
-      // Use the connection
-      globalData = globalData.map((item) => {
-        return Object.values(item)
-      })
-      globalData = globalData.map((item) => {
-        item[0] = "91"+item[0]
-        return item;
-      })
-      console.log(globalData);
-      let query = "INSERT INTO "+options.table+" (mobile,name,pincode,address) VALUES ?";
-      connection.query(query, [globalData], (error, response) => {
-          if (error) throw error;
+     pool.getConnection(function(err, connection) {
+        if (err) throw err; // not connected!
+        let r = 0;
+        async.eachSeries(globalData.chunk(CHUNK_LIMIT),async (data) => {
+           // Use the connection
+           return new Promise((done) => {
+            data = data.map((item) => {
+              let address = item["Add1"] || item["Add2"] || item["Address"]
+              if(!address){
+                address = ""
+              }
+              let d = {
+                name: item["Name"],
+                mobile: "91"+item["Mobile"],
+                address: address,
+                altno: "91"+item["Alt"],
+                pincode: address.match(/(4[0-9]{5})/g) ? address.match(/(4[0-9]{5})/g)[0] : "",
+              }
+              return Object.values(d)
+            })
+            spinner.setSpinnerTitle(`file index: ${index} ,parsing ${filename} file, total: ${r} current: ${data.length} uploading...`);
+            r = r+data.length;
+            let query = "INSERT INTO "+options.table+" (name,mobile,address,altno,pincode) VALUES ?";
+            connection.query(query, [data], (error, response) => {
+              done()
+              if (error) throw error;
+                spinner.setSpinnerTitle(`file index: ${index} ,parsing ${filename} file, total: ${r} uploaded , uploading...`);
+              })
+           })
+        },function(err){
           connection.release();
-          spinner.setSpinnerTitle(`file index: ${index} ,parsing ${filename} file, total: ${globalData.length} uploaded !`);
           resolve()
-      });
+          if(err){
+            console.log(err);
+            console.log("error is occur pls stop uploading...")
+          }
+        })        
     });
-  });
+   });
 })
 }
